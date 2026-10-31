@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/CSweet.Agent.RealtyLeadsAI.Acquisitions/CSweet.Agent.RealtyLeadsAI.Acquisitions.csproj" />
+  <Project Path="tests/CSweet.Agent.RealtyLeadsAI.Acquisitions.Tests/CSweet.Agent.RealtyLeadsAI.Acquisitions.Tests.csproj" />
+</Solution>
