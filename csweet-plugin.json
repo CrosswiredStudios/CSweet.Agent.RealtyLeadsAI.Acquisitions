@@ -1,0 +1,304 @@
+{
+  "$schema": "https://raw.githubusercontent.com/CrosswiredStudios/CSweetAgentSdk/main/schemas/csweet-plugin.v2.schema.json",
+  "manifestVersion": "2.0",
+  "kind": "agent",
+  "rolePolicy": {
+    "baseType": "manager",
+    "profile": "manager.v1",
+    "declaredRoleKeys": [
+      "manager",
+      "acquisitions-manager"
+    ],
+    "specializationKeys": [
+      "real-estate-acquisitions"
+    ]
+  },
+  "id": "com.crosswiredstudios.agent.realtyleads.acquisitions",
+  "name": "RealtyLeadsAI Acquisitions Manager",
+  "version": "0.1.0",
+  "publisher": {
+    "id": "com.crosswiredstudios",
+    "name": "CrosswiredStudios"
+  },
+  "runtime": {
+    "type": "dotnet-project",
+    "projectPath": "src/CSweet.Agent.RealtyLeadsAI.Acquisitions/CSweet.Agent.RealtyLeadsAI.Acquisitions.csproj",
+    "targetFramework": "net10.0",
+    "defaultActivationMode": "OnDemand",
+    "defaultTickFrequencySeconds": 300,
+    "supportsMultipleInstallations": true,
+    "maximumConcurrentJobs": 1
+  },
+  "protocol": {
+    "minimumVersion": "2.1",
+    "maximumVersion": "2.x"
+  },
+  "provides": [
+    {
+      "name": "acquisitions.pipeline.summary.v1",
+      "description": "Current acquisitions pipeline counts by stage with the lead IDs in each stage.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "activeLeads",
+          "stages",
+          "summary"
+        ],
+        "properties": {
+          "activeLeads": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stages": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stage",
+                "count",
+                "leadIds"
+              ],
+              "properties": {
+                "stage": {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "leadIds": {
+                  "type": "array",
+                  "maxItems": 100,
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        }
+      },
+      "executionTimeoutSeconds": 30,
+      "idempotency": "none"
+    }
+  ],
+  "requires": [
+    {
+      "name": "realtyleads.inheritance.lookup.v1",
+      "scope": "organization",
+      "purpose": "Refresh one lead record from the approved connection before drafting outreach.",
+      "dependency": "realtyleads",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.llm.chat-stream.v1",
+      "scope": "organization",
+      "purpose": "Rewrite an owner request as a research brief line; provider data never enters the prompt.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.organization.snapshot.read.v1",
+      "scope": "organization",
+      "purpose": "Find the Lead Research Analyst this manager can assign to.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.delegation.create.v1",
+      "scope": "organization",
+      "purpose": "Assign research briefs to the analyst with tracking.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.delegation.read.v1",
+      "scope": "organization",
+      "purpose": "Read assignments and their reports.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.delegation.respond.v1",
+      "scope": "organization",
+      "purpose": "Accept or close assignments delegated to this manager, deterministically.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.delegation.publish.v1",
+      "scope": "organization",
+      "purpose": "Report analyst deliveries to the owner.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.delegation.cancel.v1",
+      "scope": "organization",
+      "purpose": "Withdraw an assignment the owner cancels.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.tracking.read.v1",
+      "scope": "organization",
+      "purpose": "Shared runtime tracking reads.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.tracking.pending.v1",
+      "scope": "organization",
+      "purpose": "Shared runtime bounded recovery of missed tracking updates.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.tracking.processed.v1",
+      "scope": "organization",
+      "purpose": "Shared runtime acknowledgement of processed tracking updates.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.personal-todo.read.v1",
+      "scope": "organization",
+      "purpose": "Read the acquisitions pipeline cards.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.personal-todo.add.v1",
+      "scope": "organization",
+      "purpose": "Add one pipeline card per newly delivered lead.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.personal-todo.update.v1",
+      "scope": "organization",
+      "purpose": "Move a lead card between pipeline stages on the owner's instruction.",
+      "modelVisible": false
+    },
+    {
+      "name": "work.personal-todo.archive.v1",
+      "scope": "organization",
+      "purpose": "Archive closed or dead leads from the active pipeline.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.artifact.read.v1",
+      "scope": "organization",
+      "purpose": "Read the analyst's lead brief data block.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.artifact.create.v1",
+      "scope": "organization",
+      "purpose": "Save outreach drafts for owner review and approval.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.management.status-report.v1",
+      "scope": "organization",
+      "purpose": "Report pipeline status each management cycle.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.project-health.read.v1",
+      "scope": "organization",
+      "purpose": "Shared manager monitoring of assigned project health.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.project-health.diagnostics.read.v1",
+      "scope": "organization",
+      "purpose": "Shared manager monitoring diagnostics.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.management.incident.read.v1",
+      "scope": "organization",
+      "purpose": "Shared manager incident handling.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.management.incident.report.v1",
+      "scope": "organization",
+      "purpose": "Shared manager incident handling.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.management.incident.forward.v1",
+      "scope": "organization",
+      "purpose": "Shared manager incident escalation.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.management.incident.presentation.update.v1",
+      "scope": "organization",
+      "purpose": "Shared manager incident reporting.",
+      "modelVisible": false
+    },
+    {
+      "name": "platform.management.incident.resolution.read.v1",
+      "scope": "organization",
+      "purpose": "Shared manager incident resolution reads.",
+      "modelVisible": false
+    }
+  ],
+  "events": {
+    "subscribes": [
+      "com.csweet.user.message.received.v1",
+      "com.csweet.work.delegation.received.v1",
+      "com.csweet.work.tracking.changed.v1",
+      "com.csweet.management.review.due.v1",
+      "com.csweet.project-health.review-due.v1",
+      "com.csweet.management.incident.changed.v1",
+      "com.csweet.management.incident.owner-report-requested.v1",
+      "com.csweet.agent.attention.review-due.v1"
+    ]
+  },
+  "configuration": [],
+  "credentials": [],
+  "webAccess": {
+    "mode": "None",
+    "rules": []
+  },
+  "ui": [],
+  "catalog": {
+    "summary": "Acquisitions Manager: turns owner goals into lead research assignments, tracks each lead through a pipeline, and drafts outreach for owner approval.",
+    "longDescription": "Manages a real-estate acquisitions pipeline on top of RealtyLeadsAI. Assigns bounded research briefs to the Lead Research Analyst, adds each delivered lead to a pipeline card, moves leads through New, Qualified, Outreach planned, Contacted, Negotiating and Closed or Dead on the owner's instruction, drafts outreach letters as documents for approval, and reports status each management cycle. It never contacts leads or changes provider records.",
+    "imageUrl": null,
+    "companyLogoUrl": null,
+    "accentColor": "#1C6252",
+    "category": "General",
+    "role": {
+      "key": "realtyleads-acquisitions-manager",
+      "name": "Acquisitions Manager"
+    },
+    "license": {
+      "spdxId": "MIT"
+    },
+    "iconUrls": [],
+    "roleAliases": [],
+    "keywords": [
+      "real-estate",
+      "acquisitions",
+      "pipeline",
+      "leads"
+    ],
+    "documentationUrl": "README.md"
+  },
+  "dependencies": [
+    {
+      "id": "realtyleads",
+      "pluginId": "com.crosswiredstudios.plugin.realtyleads",
+      "publisherId": "com.crosswiredstudios",
+      "minimumVersion": "0.2.0",
+      "maximumVersionExclusive": "1.0.0"
+    }
+  ]
+}
