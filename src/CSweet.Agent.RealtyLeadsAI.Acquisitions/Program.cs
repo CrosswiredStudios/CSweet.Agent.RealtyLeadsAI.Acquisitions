@@ -4,7 +4,9 @@ using Microsoft.Extensions.Hosting;
 
 if (args.Contains("--self-test", StringComparer.Ordinal))
 {
-    var manifest = await AgentManifestLoader.LoadAsync("csweet-plugin.json", CancellationToken.None);
+    var root = new DirectoryInfo(AppContext.BaseDirectory);
+    while (root is not null && !File.Exists(Path.Combine(root.FullName, "csweet-plugin.json"))) root = root.Parent;
+    var manifest = await AgentManifestLoader.LoadAsync(Path.Combine((root ?? new DirectoryInfo(Directory.GetCurrentDirectory())).FullName, "csweet-plugin.json"), CancellationToken.None);
     var identity = manifest.Id == AcquisitionsManagerAgent.Id && manifest.Version == AcquisitionsManagerAgent.CurrentVersion;
     var grammar = ResearchBrief.TryParse("research-brief.v1 state=TX county=\"Travis\" limit=5", out var brief, out _) && brief is { State: "TX", County: "Travis", Limit: 5 } &&
                   PipelineCommand.TryParse("pipeline.v1 lead=00000000-0000-0000-0000-000000000001 stage=qualified", out var move, out _) && move?.Stage == PipelineStages.Qualified;

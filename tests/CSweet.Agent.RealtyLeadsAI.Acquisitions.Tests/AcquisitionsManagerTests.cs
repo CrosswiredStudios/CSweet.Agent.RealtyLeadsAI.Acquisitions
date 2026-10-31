@@ -106,7 +106,7 @@ public sealed class AcquisitionsManagerTests
         Assert.Equal(PipelineBoard.Correlation(LeadB.ToString("D")), card.CorrelationId); Assert.StartsWith("[New] 2 Fixture Ave", card.Title);
         Assert.True(card.StartInBacklog); Assert.Equal($"acquisition-lead-add:{LeadB:D}", card.IdempotencyKey); Assert.Null(card.SourceMessageId); Assert.Null(card.SourceConversationId);
         Assert.Contains("Owner name: Not supplied", card.Description!); Assert.Contains("Score (provider-supplied): 71", card.Description!);
-        Assert.Contains("2 lead(s)", summary); Assert.Contains("Added 1 new card(s)", summary); Assert.Contains("1 were already tracked", summary);
+        Assert.Contains("2 lead(s)", summary); Assert.Contains("Added 1 new card(s)", summary); Assert.Contains("1 already tracked", summary);
 
         Assert.Equal("ordinary progress", await AgentWithoutModel().SummarizeDelegationUpdateAsync(delegation, update with { Summary = "ordinary progress" }, runtime.CreateContext(identity: Identity()), CancellationToken.None));
     }
@@ -159,6 +159,33 @@ public sealed class AcquisitionsManagerTests
     }
 
     [Fact]
+    public async Task UnverifiedSendersGetInformationOnly()
+    {
+        var runtime = Runtime().RegisterCapability<DelegateWithTrackingRequest, DelegationSnapshot>(DelegationCapabilities.Create, (_, _) => throw new Xunit.Sdk.XunitException("no assignment"));
+        var noContext = new CommunicationMessageReceivedEvent(Guid.NewGuid(), Chat.ToString(), "someone", "research-brief.v1 state=TX", null, Guid.NewGuid(), 0, Guid.NewGuid());
+        Assert.StartsWith("Only the business owner or my manager", await Reply(runtime, AgentWithoutModel(), noContext));
+    }
+
+    [Fact]
+    public async Task DeliveredBriefCompletesAnUpstreamDelegation()
+    {
+        var artifactId = Guid.NewGuid(); var parentId = Guid.NewGuid(); DelegationResponseRequest? completion = null;
+        var content = "## Data (realtyleads.lead-brief.v1)\n\n```json\n" + JsonSerializer.Serialize(new { criteria = new { }, leads = new[] { new { inheritanceLeadId = LeadA.ToString("D"), address = "1 Fixture St", stateAbbreviation = "TX" } } }) + "\n```\n";
+        var runtime = Runtime()
+            .RegisterCapability<object, ArtifactDocument>(PlatformCapabilities.ArtifactRead, (_, _) => Task.FromResult(new ArtifactDocument(artifactId, "Lead brief", LeadBriefData.DocumentType, "Draft", null, null, null, null, null, [new(Guid.NewGuid(), 1, null, content, "sha", "Draft", DateTimeOffset.UtcNow, null, null)])))
+            .RegisterCapability<AddPersonalTodoItemRequest, PersonalTodoItem>(PersonalTodoCapabilities.Add, (_, _) => Task.FromResult(Card(LeadA, PipelineStages.New)))
+            .RegisterCapability<ReadDelegationRequest, IReadOnlyList<DelegationSnapshot>>(DelegationCapabilities.Read, (r, _) => Task.FromResult<IReadOnlyList<DelegationSnapshot>>(r.DelegationId == parentId
+                ? [new DelegationSnapshot(parentId, 3, Owner, Owner, Manager, "Chief of Staff", "Acquisitions Manager", "Find leads in TX", "Leads", "Active", true, Chat, Guid.NewGuid(), Guid.NewGuid(), null, null, Guid.NewGuid(), null, null, DateTimeOffset.UtcNow, [], [])] : []))
+            .RegisterCapability<DelegationResponseRequest, DelegationSnapshot>(DelegationCapabilities.Respond, (r, _) => { completion = r; return Task.FromResult(new DelegationSnapshot(parentId, 4, Owner, Owner, Manager, "C", "A", "x", "y", "Completed", true, Chat, Guid.NewGuid(), Guid.NewGuid(), null, null, Guid.NewGuid(), null, null, DateTimeOffset.UtcNow, [], [])); });
+        var child = new DelegationSnapshot(Guid.NewGuid(), 2, Manager, Manager, Analyst, "Acquisitions Manager", "Lead Research Analyst", "research-brief.v1 state=TX", "Leads", "Active", true, Chat, Guid.NewGuid(), Guid.NewGuid(), null, null, Guid.NewGuid(), parentId, null, DateTimeOffset.UtcNow, [],
+            [new(Guid.NewGuid(), Guid.NewGuid(), null, 1, "Progress", $"Execution response: Lead brief saved [lead-brief:{artifactId:D}]", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]);
+        // The runtime hands over only the newest progress update, which no longer carries the marker; the recorded update still does.
+        var summary = await AgentWithoutModel().SummarizeDelegationUpdateAsync(child, new(Guid.NewGuid(), Guid.NewGuid(), null, 2, "Progress", "still tidying up", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow), runtime.CreateContext(identity: Identity()), CancellationToken.None);
+        Assert.Contains("Added 1 new card(s)", summary);
+        Assert.Equal("Completed", completion!.Disposition); Assert.Equal(3, completion.ExpectedRevision); Assert.Equal($"delegation-outcome:{parentId:N}:{artifactId:N}", completion.IdempotencyKey);
+    }
+
+    [Fact]
     public async Task OtherAgentsCannotDirectThePipeline()
     {
         var runtime = Runtime().RegisterCapability<DelegateWithTrackingRequest, DelegationSnapshot>(DelegationCapabilities.Create, (_, _) => throw new Xunit.Sdk.XunitException("no assignment"));
@@ -197,8 +224,13 @@ public sealed class AcquisitionsManagerTests
         var d = new DelegationSnapshot(Guid.NewGuid(), 1, Owner, Owner, Manager, "Chief of Staff", "Acquisitions Manager", "Find leads in Travis County TX", "Leads", "AwaitingAcknowledgement", true, Chat, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, Guid.NewGuid(), null, null, DateTimeOffset.UtcNow, [], []);
         Assert.IsType<DelegationResponse.Acceptance>(await agent.HandleDelegationReceivedAsync(d, context, CancellationToken.None));
         Assert.IsType<DelegationResponse.Decline>(await agent.HandleDelegationReceivedAsync(d with { Instruction = "use password hunter2" }, context, CancellationToken.None));
+        // A peer agent (not directive, not from the manager's manager) cannot direct the pipeline by delegating.
+        var peer = Guid.NewGuid();
+        Assert.IsType<DelegationResponse.Decline>(await agent.HandleDelegationReceivedAsync(d with { IsDirective = false, CoordinatorId = peer, OriginalRequesterId = peer }, context, CancellationToken.None));
         Assert.Equal(d.WorkItemId, await agent.ResolveDelegationWorkAsync(d, "x", context, CancellationToken.None));
-        Assert.True((await agent.ReviewDelegationOutcomeAsync(d with { ExecutionEvidence = new(Guid.NewGuid(), Guid.NewGuid(), "Committed", "Assigned to Lead Research Analyst: `research-brief.v1 state=TX`") }, context, CancellationToken.None))!.Succeeded);
+        // Assigning research is progress, not completion; a reply that assigned nothing is a final failure.
+        Assert.Null(await agent.ReviewDelegationOutcomeAsync(d with { ExecutionEvidence = new(Guid.NewGuid(), Guid.NewGuid(), "Committed", "Assigned to Lead Research Analyst: `research-brief.v1 state=TX`") }, context, CancellationToken.None));
+        Assert.False((await agent.ReviewDelegationOutcomeAsync(d with { ExecutionEvidence = new(Guid.NewGuid(), Guid.NewGuid(), "Committed", "I couldn't turn that into a research assignment.") }, context, CancellationToken.None))!.Succeeded);
         Assert.Null(await agent.ReviewDelegationOutcomeAsync(d, context, CancellationToken.None));
     }
 

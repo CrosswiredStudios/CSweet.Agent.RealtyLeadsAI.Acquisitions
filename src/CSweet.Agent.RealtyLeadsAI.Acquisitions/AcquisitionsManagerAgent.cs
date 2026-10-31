@@ -19,7 +19,7 @@ public sealed class AcquisitionsManagerAgent : CSweetManagerAgentBase
     internal const string Help = "I run the acquisitions pipeline. Tell me where to look (for example: find 10 leads in Travis County TX with score over 70), ask for the pipeline, move a lead with `pipeline.v1 lead=<id> stage=Qualified`, or request a letter with `outreach-draft.v1 lead=<id>`. I assign research to the Lead Research Analyst and never contact leads myself.";
 
     private static readonly Regex CredentialWords = new("api[ -]?key|secret|password", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    private static readonly Regex LongToken = new("[A-Za-z0-9_+=.-]{32,}", RegexOptions.CultureInvariant);
+    private static readonly Regex LongToken = new("[A-Za-z0-9_+.-]{32,}", RegexOptions.CultureInvariant);
     private static readonly Regex StatusAsk = new(@"^\s*(pipeline|status|report|where are we|what('s| is) in the pipeline)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private readonly IBriefExtractor _extractor;
@@ -47,7 +47,8 @@ public sealed class AcquisitionsManagerAgent : CSweetManagerAgentBase
         {
             var cards = await _board.ListAsync(context, ct);
             var stages = PipelineStages.All.Select(s => new StageCount(s, cards.Count(c => c.Stage == s), cards.Where(c => c.Stage == s).Select(c => c.LeadId).Take(100).ToArray())).Where(s => s.Count > 0).ToArray();
-            return AgentWorkResult.Success(new PipelineSummaryResult(cards.Count(c => !PipelineStages.IsTerminal(c.Stage)), stages, await _board.SummaryAsync(context, ct)));
+            var summary = await _board.SummaryAsync(context, ct);
+            return AgentWorkResult.Success(new PipelineSummaryResult(cards.Count(c => !PipelineStages.IsTerminal(c.Stage)), stages, summary.Length > 4096 ? summary[..4096] : summary));
         }
         catch (PlatformCapabilityException) { return AgentWorkResult.Failure("The pipeline board is unavailable; review this manager's personal work grants."); }
     }
@@ -95,16 +96,24 @@ public sealed class AcquisitionsManagerAgent : CSweetManagerAgentBase
     internal static bool LooksLikeCredential(string text) =>
         CredentialWords.IsMatch(text) || LongToken.Matches(text).Any(m => !Guid.TryParseExact(m.Value, "D", out _));
 
-    /// <summary>Only humans and this manager's own manager may direct the pipeline; other agents get information only.</summary>
+    /// <summary>
+    /// Only authenticated humans and this manager's own manager may direct the pipeline. Missing sender context is
+    /// treated as unverified (information only); a delegation counts when it is a reporting-chain directive or comes
+    /// from the manager's manager.
+    /// </summary>
     internal static bool MayDirect(CommunicationMessageReceivedEvent incoming, AgentRuntimeContext context, DelegationSnapshot? delegation)
     {
-        if (delegation is not null) return true;
+        if (delegation is not null) return IsAuthorizedDelegation(delegation, context);
         var type = incoming.Context?.GetValueOrDefault("senderEmployeeType");
         var sender = incoming.Context?.GetValueOrDefault("senderOrganizationUserId");
-        if (type is null) return true;
-        return type.Equals("Human", StringComparison.OrdinalIgnoreCase) ||
-               sender is not null && sender.Equals(context.Identity?.ManagerEmployeeId, StringComparison.OrdinalIgnoreCase);
+        if (type is not null && type.Equals("Human", StringComparison.OrdinalIgnoreCase)) return true;
+        return sender is not null && context.Identity?.ManagerEmployeeId is { } manager && sender.Equals(manager, StringComparison.OrdinalIgnoreCase);
     }
+
+    internal static bool IsAuthorizedDelegation(DelegationSnapshot delegation, AgentRuntimeContext context) =>
+        delegation.IsDirective || context.Identity?.ManagerEmployeeId is { } manager &&
+        (delegation.CoordinatorId.ToString("D").Equals(manager, StringComparison.OrdinalIgnoreCase) ||
+         delegation.OriginalRequesterId.ToString("D").Equals(manager, StringComparison.OrdinalIgnoreCase));
 
     private async Task<string> RouteAsync(string? text, CommunicationMessageReceivedEvent incoming, DelegationSnapshot? delegation, AgentRuntimeContext context, CancellationToken ct)
     {
@@ -115,14 +124,14 @@ public sealed class AcquisitionsManagerAgent : CSweetManagerAgentBase
         if (!MayDirect(incoming, context, delegation)) return "Only the business owner or my manager can direct the acquisitions pipeline. " + await _board.SummaryAsync(context, ct);
 
         if (ResearchBrief.TryParse(text, out var brief, out var briefError))
-            return brief is null ? $"{briefError} Example: {ResearchBrief.Prefix} state=TX county=\"Travis\" minScore=70 limit=10" : await ResearchAssignments.AssignAsync(brief, incoming, context, ct);
+            return brief is null ? $"{briefError} Example: {ResearchBrief.Prefix} state=TX county=\"Travis\" minScore=70 limit=10" : await ResearchAssignments.AssignAsync(brief, incoming, delegation?.Id, context, ct);
         if (PipelineCommand.TryParse(text, out var move, out var moveError))
             return move is null ? $"{moveError} Example: {PipelineCommand.Prefix} lead=<id> stage=Qualified" : await _board.MoveAsync(move, incoming.MessageId, context, ct);
         if (OutreachCommand.TryParse(text, out var outreach, out var outreachError))
             return outreach is null ? $"{outreachError} Example: {OutreachCommand.Prefix} lead=<id>" : await _drafter.DraftAsync(outreach, incoming.MessageId, conversation, _board, context, ct);
 
         var extracted = await _extractor.ExtractAsync(text, incoming, context, ct);
-        if (extracted is not null) return await ResearchAssignments.AssignAsync(extracted, incoming, context, ct);
+        if (extracted is not null) return await ResearchAssignments.AssignAsync(extracted, incoming, delegation?.Id, context, ct);
         return "I couldn't turn that into a research assignment. Tell me the state and the county or city, how many leads you want, and any minimum score — or send it exactly as " +
                $"`{ResearchBrief.Prefix} state=TX county=\"Travis\" minScore=70 limit=10`. {Help}";
     }
@@ -137,6 +146,8 @@ public sealed class AcquisitionsManagerAgent : CSweetManagerAgentBase
     public override Task<DelegationResponse> HandleDelegationReceivedAsync(DelegationSnapshot delegation, AgentRuntimeContext context, CancellationToken token)
     {
         if (LooksLikeCredential(delegation.Instruction ?? "")) return Task.FromResult<DelegationResponse>(new DelegationResponse.Decline(CredentialGuidance));
+        if (!IsAuthorizedDelegation(delegation, context))
+            return Task.FromResult<DelegationResponse>(new DelegationResponse.Decline("Only the business owner or my manager can direct the acquisitions pipeline. Ask them to route the request through me."));
         return Task.FromResult<DelegationResponse>(new DelegationResponse.Acceptance(
             "I will turn this into a research assignment for the Lead Research Analyst and track the resulting leads in the acquisitions pipeline. No outreach is sent without owner approval."));
     }
@@ -144,12 +155,21 @@ public sealed class AcquisitionsManagerAgent : CSweetManagerAgentBase
     public override Task<Guid?> ResolveDelegationWorkAsync(DelegationSnapshot delegation, string response, AgentRuntimeContext context, CancellationToken token) =>
         Task.FromResult(delegation.WorkItemId);
 
-    /// <summary>As a recipient, the manager's execution reply is its outcome: an assignment was made or could not be.</summary>
+    /// <summary>Every execution turn commits a reply, so this fallback is unreachable; it stays deterministic regardless.</summary>
+    public override async Task HandleDelegationWorkIntakeAsync(DelegationSnapshot delegation, CommunicationMessageReceivedEvent incoming, AgentRuntimeContext context, CancellationToken token)
+    {
+        await using var stream = context.CreateTurnStream(incoming.ConversationId, incoming.TurnId, incoming.Attempt, "Confidential");
+        await stream.CommitAsync("I could not act on this request. " + Help, token);
+    }
+
+    /// <summary>
+    /// As a recipient, assigning research is progress, not completion: the outcome is reported when the resulting lead
+    /// brief is ingested (see <see cref="SummarizeDelegationUpdateAsync"/>). A reply that made no assignment is a final failure.
+    /// </summary>
     public override Task<DelegationResponse.FinalOutcome?> ReviewDelegationOutcomeAsync(DelegationSnapshot delegation, AgentRuntimeContext context, CancellationToken token)
     {
         var content = delegation.ExecutionEvidence?.Content;
-        if (content is null) return Task.FromResult<DelegationResponse.FinalOutcome?>(null);
-        if (content.StartsWith("Assigned to ", StringComparison.Ordinal)) return Task.FromResult<DelegationResponse.FinalOutcome?>(new(content, true));
+        if (content is null || content.StartsWith("Assigned to ", StringComparison.Ordinal)) return Task.FromResult<DelegationResponse.FinalOutcome?>(null);
         return Task.FromResult<DelegationResponse.FinalOutcome?>(new("The request could not be turned into a research assignment; see the manager's reply.", false));
     }
 
@@ -159,19 +179,41 @@ public sealed class AcquisitionsManagerAgent : CSweetManagerAgentBase
     /// </summary>
     public override async Task<string> SummarizeDelegationUpdateAsync(DelegationSnapshot delegation, TrackingUpdate update, AgentRuntimeContext context, CancellationToken token)
     {
-        if (LeadBriefData.ParseMarker(update.Summary) is not { } artifactId) return update.Summary;
-        IReadOnlyList<InheritanceLead>? leads;
+        // The runtime may hand us only the newest progress update; markers in any recorded update are ingested idempotently.
+        var markers = delegation.Updates.Select(u => LeadBriefData.ParseMarker(u.Summary)).Append(LeadBriefData.ParseMarker(update.Summary))
+            .Where(m => m.HasValue).Select(m => m!.Value).Distinct().ToArray();
+        if (markers.Length == 0) return update.Summary;
+        var lines = new List<string>();
+        foreach (var artifactId in markers)
+        {
+            IReadOnlyList<InheritanceLead>? leads;
+            try
+            {
+                var document = await context.Platform.Artifacts.GetAsync(artifactId, token);
+                var revision = document.Revisions.OrderByDescending(r => r.Number).FirstOrDefault(r => r.Id == document.LatestRevisionId) ?? document.Revisions.OrderByDescending(r => r.Number).FirstOrDefault();
+                leads = document.DocumentType == LeadBriefData.DocumentType ? LeadBriefData.ParseLeads(revision?.Content) : null;
+            }
+            catch (PlatformCapabilityException) { leads = null; }
+            if (leads is null) { lines.Add($"{delegation.RecipientName} delivered a lead brief (artifact {artifactId:D}), but I could not read its data block, so no pipeline cards were added. Open the brief to review the leads."); continue; }
+            var added = await _board.IngestAsync(leads, artifactId, delegation.ReportingConversationId, null, context, token);
+            lines.Add($"{delegation.RecipientName} delivered a lead brief with {leads.Count} lead(s) for \"{delegation.IntendedOutcome}\". Added {added} new card(s) to the acquisitions pipeline" +
+                      (added < leads.Count ? $"; {leads.Count - added} already tracked" : "") + $". Review the brief (artifact {artifactId:D}) and tell me which leads to qualify.");
+            await CompleteParentAsync(delegation, artifactId, lines[^1], context, token);
+        }
+        return string.Join("\n\n", lines);
+    }
+
+    /// <summary>When this assignment was made on behalf of an upstream delegation, report that one complete now that leads are tracked.</summary>
+    private static async Task CompleteParentAsync(DelegationSnapshot delegation, Guid artifactId, string summary, AgentRuntimeContext context, CancellationToken token)
+    {
+        if (delegation.ParentDelegationId is not { } parentId) return;
         try
         {
-            var document = await context.Platform.Artifacts.GetAsync(artifactId, token);
-            var revision = document.Revisions.OrderByDescending(r => r.Number).FirstOrDefault(r => r.Id == document.LatestRevisionId) ?? document.Revisions.OrderByDescending(r => r.Number).FirstOrDefault();
-            leads = document.DocumentType == LeadBriefData.DocumentType ? LeadBriefData.ParseLeads(revision?.Content) : null;
+            var parent = (await context.Platform.Delegation.ReadAsync(new(parentId), token)).SingleOrDefault();
+            if (parent is null || parent.Status is "Completed" or "Cancelled" or "Declined") return;
+            await context.Platform.Delegation.RespondAsync(new(parent.Id, parent.Revision, "Completed", summary, $"delegation-outcome:{parent.Id:N}:{artifactId:N}"), token);
         }
-        catch (PlatformCapabilityException) { leads = null; }
-        if (leads is null) return $"{delegation.RecipientName} delivered a lead brief (artifact {artifactId:D}), but I could not read its data block, so no pipeline cards were added. Open the brief to review the leads.";
-        var added = await _board.IngestAsync(leads, artifactId, delegation.ReportingConversationId, null, context, token);
-        return $"{delegation.RecipientName} delivered a lead brief with {leads.Count} lead(s) for \"{delegation.IntendedOutcome}\". Added {added} new card(s) to the acquisitions pipeline" +
-               (added < leads.Count ? $"; {leads.Count - added} were already tracked" : "") + $". Review the brief (artifact {artifactId:D}) and tell me which leads to qualify.";
+        catch (PlatformCapabilityException e) when (e.Code is PlatformCapabilityErrorCode.Denied or PlatformCapabilityErrorCode.NotFound or PlatformCapabilityErrorCode.Conflict) { }
     }
 
     // ---- Management cycle ----

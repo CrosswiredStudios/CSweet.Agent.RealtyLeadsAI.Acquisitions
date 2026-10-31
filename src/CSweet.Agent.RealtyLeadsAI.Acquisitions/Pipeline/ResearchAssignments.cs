@@ -75,7 +75,7 @@ public static class AnalystLocator
 /// <summary>Assigns a brief to the analyst with tracking. The instruction is the canonical brief line, nothing else.</summary>
 public static class ResearchAssignments
 {
-    public static async Task<string> AssignAsync(ResearchBrief brief, CommunicationMessageReceivedEvent incoming, AgentRuntimeContext context, CancellationToken ct)
+    public static async Task<string> AssignAsync(ResearchBrief brief, CommunicationMessageReceivedEvent incoming, Guid? parentDelegationId, AgentRuntimeContext context, CancellationToken ct)
     {
         if (incoming.MessageId == Guid.Empty || !Guid.TryParse(incoming.ConversationId, out var chat))
             return "I can only assign research from a saved chat message. Please send the request again.";
@@ -86,7 +86,8 @@ public static class ResearchAssignments
         var outcome = $"A lead brief for {brief.Scope()} with up to {brief.Limit} subscribed inheritance leads" +
                       (brief.MinScore is { } s ? $" scoring at least {s.ToString(CultureInfo.InvariantCulture)}" : "") + ".";
         await context.Platform.Delegation.DelegateWithTrackingAsync(new(analyst.Id, instruction, outcome, chat, incoming.MessageId,
-            $"delegation-source:{incoming.MessageId:N}", WorkContext: incoming.WorkContext is { } wc ? new(wc.WorkstreamId, wc.TeamId, wc.WorkItemId) : null), ct);
+            $"delegation-source:{incoming.MessageId:N}", WorkContext: incoming.WorkContext is { } wc ? new(wc.WorkstreamId, wc.TeamId, wc.WorkItemId) : null,
+            ParentDelegationId: parentDelegationId), ct);
         return $"Assigned to {analyst.DisplayName}: `{instruction}`. When the lead brief comes back I will add each new lead to the pipeline and let you know.";
     }
 }

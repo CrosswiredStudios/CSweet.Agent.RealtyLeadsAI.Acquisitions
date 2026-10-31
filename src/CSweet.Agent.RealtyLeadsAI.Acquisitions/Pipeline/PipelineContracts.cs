@@ -109,7 +109,7 @@ public sealed record ResearchBrief(string State, string? County, string? City, s
         if (County is not null) parts.Add($"county=\"{County}\"");
         if (City is not null) parts.Add($"city=\"{City}\"");
         if (Status is not null) parts.Add($"status=\"{Status}\"");
-        if (MinScore is { } s) parts.Add($"minScore={s.ToString(CultureInfo.InvariantCulture)}");
+        if (MinScore is { } s) parts.Add($"minScore={s.ToString("0.###", CultureInfo.InvariantCulture)}");
         parts.Add($"limit={Limit.ToString(CultureInfo.InvariantCulture)}");
         if (Purpose is not null) parts.Add($"purpose=\"{Purpose}\"");
         return string.Join(' ', parts);

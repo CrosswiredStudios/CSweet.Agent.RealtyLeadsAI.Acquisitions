@@ -29,12 +29,12 @@ public sealed class PipelineBoard
     private static string RetitleStage(string title, string stage) => TitleStage.IsMatch(title) ? TitleStage.Replace(title, $"[{stage}]", 1) : $"[{stage}] {title}";
 
     /// <summary>All current lead cards owned by this manager, newest first.</summary>
-    public async Task<IReadOnlyList<PipelineCard>> ListAsync(AgentRuntimeContext context, CancellationToken ct)
+    public async Task<IReadOnlyList<PipelineCard>> ListAsync(AgentRuntimeContext context, CancellationToken ct, bool includeArchived = false)
     {
         var directory = await context.Platform.PersonalTodo.ListAsync(ct);
         var self = context.Identity?.EmployeeId;
         return directory.Boards.SelectMany(b => b.Items)
-            .Where(i => i.ArchivedAt is null && (self is null || i.OwnerOrganizationUserId.ToString("D") == self) &&
+            .Where(i => (includeArchived || i.ArchivedAt is null) && (self is null || i.OwnerOrganizationUserId.ToString("D") == self) &&
                         i.CorrelationId?.StartsWith(CorrelationPrefix, StringComparison.Ordinal) == true)
             .Select(i => new PipelineCard(i, i.CorrelationId![CorrelationPrefix.Length..], TitleStage.Match(i.Title).Groups["stage"].Value is { Length: > 0 } s ? s : PipelineStages.New))
             .OrderByDescending(c => c.Item.UpdatedAt).ToArray();
@@ -47,7 +47,8 @@ public sealed class PipelineBoard
     public async Task<int> IngestAsync(IReadOnlyList<InheritanceLead> leads, Guid briefArtifactId, Guid? sourceConversation, Guid? sourceMessage,
         AgentRuntimeContext context, CancellationToken ct)
     {
-        var existing = (await ListAsync(context, ct)).Select(c => c.LeadId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Archived (closed or dead) leads stay known, so a repeated brief never resurrects them as new.
+        var existing = (await ListAsync(context, ct, includeArchived: true)).Select(c => c.LeadId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var added = 0;
         foreach (var lead in leads.DistinctBy(l => l.InheritanceLeadId, StringComparer.OrdinalIgnoreCase))
         {

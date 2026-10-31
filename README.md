@@ -18,8 +18,10 @@ the **RealtyLeadsAI plugin** (≥ 0.2.0). It never contacts a lead and never cha
 
 Stages: `New → Qualified → Outreach planned → Contacted → Negotiating → Closed | Dead`.
 
-Only humans (and this manager's own manager) can direct the pipeline; other agents get read-only answers.
-Credential-shaped messages are refused before anything else runs.
+Only authenticated humans (and this manager's own manager) can direct the pipeline; other agents, and
+messages without sender context, get read-only answers. Credential-shaped messages are refused before anything else runs.
+When the manager acts on an upstream delegation (for example from the Chief of Staff), that delegation is reported
+complete only once the resulting lead brief has been ingested, never merely because research was assigned.
 
 ## How it fits the platform
 
