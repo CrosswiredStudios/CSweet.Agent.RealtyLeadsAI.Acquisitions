@@ -156,6 +156,9 @@ public sealed class AcquisitionsManagerTests
         var reply = await Reply(Runtime(Card(LeadA, PipelineStages.New), Card(LeadB, PipelineStages.Contacted, "2 Fixture Ave")), AgentWithoutModel(), Message("Pipeline?"));
         Assert.Contains("2 active lead(s)", reply); Assert.Contains("**New** (1)", reply); Assert.Contains("**Contacted** (1)", reply); Assert.Contains(LeadB.ToString("D"), reply);
         Assert.Contains("pipeline is empty", await Reply(Runtime(), AgentWithoutModel(), Message("status")));
+        Assert.Contains("2 active lead(s)", await Reply(Runtime(Card(LeadA, PipelineStages.New), Card(LeadB, PipelineStages.New, "2 Fixture Ave")), AgentWithoutModel(), Message("pipeline status please")));
+        // A command that happens to start with a status word is still a command.
+        Assert.Contains("stage must be one of", await Reply(Runtime(), AgentWithoutModel(), Message($"pipeline.v1 lead={LeadA:D} stage=Nowhere")));
     }
 
     [Fact]

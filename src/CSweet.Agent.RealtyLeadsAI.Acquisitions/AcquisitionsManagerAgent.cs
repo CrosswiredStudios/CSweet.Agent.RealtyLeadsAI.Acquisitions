@@ -20,7 +20,8 @@ public sealed class AcquisitionsManagerAgent : CSweetManagerAgentBase
 
     private static readonly Regex CredentialWords = new("api[ -]?key|secret|password", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex LongToken = new("[A-Za-z0-9_+.-]{32,}", RegexOptions.CultureInvariant);
-    private static readonly Regex StatusAsk = new(@"^\s*(pipeline|status|report|where are we|what('s| is) in the pipeline)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    // A bare status question; "pipeline.v1 ..." and other versioned commands are not questions.
+    private static readonly Regex StatusAsk = new(@"^\s*(pipeline|status|report|where are we|what('s| is) in the pipeline)\b(?!\.v\d)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private readonly IBriefExtractor _extractor;
     private readonly PipelineBoard _board = new();
