@@ -13,7 +13,7 @@ namespace CSweet.Agent.RealtyLeadsAI.Acquisitions;
 public sealed class AcquisitionsManagerAgent : CSweetManagerAgentBase
 {
     public const string Id = "com.crosswiredstudios.agent.realtyleads.acquisitions";
-    public const string CurrentVersion = "0.1.0";
+    public const string CurrentVersion = "0.1.1";
     public const int MaximumMessageLength = 4000;
     internal const string CredentialGuidance = "Enter credentials only in native RealtyLeadsAI account settings and grant the Lead Research Analyst read access there. Never send a key in chat.";
     internal const string Help = "I run the acquisitions pipeline. Tell me where to look (for example: find 10 leads in Travis County TX with score over 70), ask for the pipeline, move a lead with `pipeline.v1 lead=<id> stage=Qualified`, or request a letter with `outreach-draft.v1 lead=<id>`. I assign research to the Lead Research Analyst and never contact leads myself.";

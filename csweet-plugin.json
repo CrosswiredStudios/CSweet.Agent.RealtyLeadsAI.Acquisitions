@@ -15,7 +15,7 @@
   },
   "id": "com.crosswiredstudios.agent.realtyleads.acquisitions",
   "name": "RealtyLeadsAI Acquisitions Manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": {
     "id": "com.crosswiredstudios",
     "name": "CrosswiredStudios"

@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
     paths:
+      - scripts/prepare-ci-dependencies.py
+      - scripts/test-ci-dependencies.py
+      - build/ci-dependencies.json
       - 'csweet-plugin.json'
       - 'releases/**'
       - '.github/workflows/release.yml'
@@ -19,6 +22,14 @@ jobs:
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
         with:
           dotnet-version: '10.0.x'
+      - name: Verify CI dependency fallback
+        env:
+          CSWEET_RUN_DEPENDENCY_INTEGRATION: '1'
+        run: python3 scripts/test-ci-dependencies.py
+      - name: Prepare pinned C-Sweet dependencies
+        env:
+          CSWEET_DEPENDENCY_TOKEN: ${{ secrets.CSWEET_DEPENDENCY_READ_TOKEN }}
+        run: python3 scripts/prepare-ci-dependencies.py
       - name: Validate release
         run: |
           dotnet test
@@ -37,3 +48,10 @@ jobs:
           else
             gh release create "$tag" --target "$GITHUB_SHA" --title "$version" --notes-file "$notes"
           fi
+      - name: Upload dependency provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-ci-dependencies
+          path: .artifacts/ci-dependencies/resolved.json
+          if-no-files-found: ignore

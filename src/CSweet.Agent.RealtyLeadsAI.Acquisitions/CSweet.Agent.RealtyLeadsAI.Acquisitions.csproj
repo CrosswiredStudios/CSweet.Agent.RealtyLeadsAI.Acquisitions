@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Version>0.1.1</Version>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>

@@ -1,6 +1,6 @@
 # RealtyLeadsAI Acquisitions Manager
 
-Version 0.1.0 on SDK 5.8.0. A manager agent (`manager.v1`) that owns a real-estate acquisitions
+Version 0.1.1 on SDK 5.8.0. A manager agent (`manager.v1`) that owns a real-estate acquisitions
 pipeline for a C-Sweet business. It works with the **RealtyLeadsAI Lead Research Analyst** and
 the **RealtyLeadsAI plugin** (≥ 0.2.0). It never contacts a lead and never changes provider records.
 
@@ -42,3 +42,13 @@ management status report, and the shared manager monitoring set (project health,
 Declarations grant nothing; install review decides.
 
 Run `dotnet test` and `dotnet run --project src/CSweet.Agent.RealtyLeadsAI.Acquisitions -- --self-test`.
+
+## CI dependency fallback
+
+GitHub Actions uses the pinned SDK and WorkManagement.Contracts versions from NuGet when available.
+An unpublished version is packed from its reviewed full commit in `build/ci-dependencies.json`.
+Update that commit pin together with any SDK or contracts dependency bump; CI rejects mismatched versions.
+Packages stay local to the job and are never pushed to NuGet. The job summary and dependency-provenance
+artifact record origins, source commits and SHA-256 hashes. Private source repositories require the optional
+`CSWEET_DEPENDENCY_READ_TOKEN` Actions secret with read access to the dependency repositories.
+Run `python3 scripts/test-ci-dependencies.py` for the offline resolver regression tests.
