@@ -1,6 +1,6 @@
 # RealtyLeadsAI Acquisitions Manager
 
-Version 0.1.1 on SDK 5.8.0. A manager agent (`manager.v1`) that owns a real-estate acquisitions
+Version 0.1.2 on SDK 5.8.0. A manager agent (`manager.v1`) that owns a real-estate acquisitions
 pipeline for a C-Sweet business. It works with the **RealtyLeadsAI Lead Research Analyst** and
 the **RealtyLeadsAI plugin** (≥ 0.2.0). It never contacts a lead and never changes provider records.
 
